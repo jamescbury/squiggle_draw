@@ -1,58 +1,27 @@
-# Architecture Overview
+# Architecture
 
-## Module Structure
+## Drawing
 
-### `core/`
-Core algorithms for line art generation:
-- `algorithms.py` - Main line tracing algorithms
-- `path_optimizer.py` - Path optimization for continuous lines
-- `color_analyzer.py` - Color separation logic
+`SquiggleCore` contains the deterministic image-analysis, drawing, export, and playback-plan code. `PhotoAnalysis` provides a bounded analysis raster, feature energy, local surface directions, coordinate transforms, and a connected-background estimate. Each drawing strategy retains its own marks and geometry budget. Form sketch retains its contour → shading → accent sequence. The final color-order stage interleaves optional ink passes without changing the original single-pen paths.
 
-### `processors/`
-Image preprocessing and manipulation:
-- `image_loader.py` - Load jpg, png, heic files
-- `contrast_enhancer.py` - Adjust contrast and shadows
-- `edge_detector.py` - Edge detection algorithms
-- `color_separator.py` - Separate images by color
+`SquiggleDraw` is the SwiftUI/AppKit desktop interface. Generation and file work run outside the main actor. Request tokens prevent stale generation results from replacing newer images. `SquiggleSamples` is an explicit-input command-line gallery renderer.
 
-### `generators/`
-SVG generation and path creation:
-- `svg_generator.py` - Create SVG files
-- `path_generator.py` - Generate continuous paths
-- `multi_path_generator.py` - Handle multi-color paths
+`CircularContours` shapes broad loops using the surface-direction field and probes each displacement for tonal or RGB boundaries. Only the dimension across an edge tightens; the along-edge extent stays broad. Contact corners are softened and reprojected against the boundary. The original round-loop geometry remains available with edge bending disabled.
 
-### `io/`
-Input/output handling:
-- `file_handler.py` - File I/O operations
-- `svg_writer.py` - Write SVG files with AxiDraw compatibility
+Circular scribbles optionally carry per-run width multipliers sampled from pigment at the pen position. Shared endpoints keep width changes continuous. Standard SVG stroke widths render outside the app; `data-squiggle-width-scale` carries ratios for the tablet's logical pen setting. Width runs are added after spatial ordering and retained through color partitioning. Tone compensation accounts for wider ink so shadow width replaces some of the densely overlapping geometry. Highlights use fine lines. Width changes are not counted as pen lifts.
 
-### `cli/`
-Command line interface:
-- `main.py` - Entry point for CLI
-- `single_line.py` - Single line mode commands
-- `multi_line.py` - Multi-line mode commands
+## Library and transport
 
-### `gui/`
-Graphical user interface (future):
-- `app.py` - Main GUI application
-- `widgets/` - Custom UI widgets
+The Mac library stores an atomic JSON index and immutable SVG/thumbnail files, each identified by UUID. A save snapshots the generated drawing, visible inks, and color order; it does not copy the photograph. Availability and names are separate catalog metadata.
 
-## Data Flow
+The opt-in server uses a random 64-character pairing token and a fixed local port, 48765. Only exact GET routes for the manifest and available SVG IDs are served. It never accepts filesystem paths, uploads, or remote commands. Requests, concurrency, catalog size, and file sizes are bounded. Source photographs and thumbnails are not HTTP routes.
 
-1. **Input**: User provides image file (jpg/png/heic)
-2. **Loading**: `image_loader` reads and converts to standard format
-3. **Preprocessing**: 
-   - `contrast_enhancer` adjusts image contrast
-   - `edge_detector` finds edges
-   - `color_separator` (for multi-line mode)
-4. **Generation**:
-   - `path_generator` creates continuous path
-   - `path_optimizer` optimizes for drawing
-5. **Output**: `svg_writer` creates AxiDraw-compatible SVG
+Manifest schema 1 contains `libraryID` and `sketches`, each with `id`, `title`, `style`, `createdAt`, `bytes`, `sha256`, and `file`. The Android client accepts private IPv4 pairing addresses, refuses redirects, checks byte counts and hashes, stages the full transfer, and changes its active index only after success. A failed sync preserves the previous offline catalog. Different Mac library IDs retain separate caches. Unchecking on Mac removes only that managed tablet copy after a successful sync; manual SVG imports are independent.
 
-## Key Design Decisions
+## Playback
 
-1. **Modular Architecture**: Each module has a single responsibility
-2. **Pipeline Pattern**: Image processing follows a clear pipeline
-3. **Strategy Pattern**: Different algorithms can be swapped
-4. **Factory Pattern**: SVG generators for different modes
+Both apps preserve SVG document order. The tablet streams bounded SVG input into compact geometry and grows ink by traveled distance. Pen lifts add a short pause. Filled polygons finish their outline and then apply their fill. Direct BOOX ink is experimental; colored/fill/variable-width artwork uses Canvas. Automated graphics tests cannot certify physical e-ink refresh or ghosting.
+
+## Cable bootstrap
+
+Mac USBConnection uses an existing authorized Android platform-tools connection. An explicit **Pair connected BOOX** action sends Squiggle’s existing bearer URL and library identity to the system-permission-protected PairingReceiver. The tablet saves its network address separately from the derived loopback URL. Sync tries the loopback bridge before Wi-Fi and checks the expected library ID before any snapshot commit. The Mac resumes only its previously paired serial while sharing is enabled. Inkwell’s credentials and reverse mappings remain separate.

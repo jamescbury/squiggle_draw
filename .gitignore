@@ -1,46 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-ENV/
-env/
-*.egg
-*.egg-info/
-dist/
-build/
-*.wheel
-
-# Poetry
-poetry.lock
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Project specific
-output/
-examples/*.svg
-*.svg
-!examples/sample_output.svg
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Local environment
-.env
-.env.local
+**/.build/
+**/dist/
+**/.gradle/
+**/.gradle-home/
+**/build/
+**/local.properties
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.apk
+*.app/
+*.zip

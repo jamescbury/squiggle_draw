@@ -1,163 +1,56 @@
-# Squiggle Draw
+# Squiggle Studio
 
-Generate single line art from photos for AxiDraw plotters.
+Photographs become ordered pen drawings on your Mac, then emerge stroke by stroke on a BOOX tablet.
 
-## Features
+- **Squiggle Draw**: native macOS photo conversion, black or RGB + black, SVG/PNG export, drawing simulation, and a Wi-Fi sketch library.
+- **Squiggle**: Android/BOOX SVG playback and an offline library synchronized from the Mac.
 
-### Single Line Mode (Issue #1) ✅
-- Convert photos (jpg, png, heic) to single continuous path SVG
-- **NEW**: Stippling algorithm inspired by TheScribbler - 95% smaller files!
-- Advanced TSP optimization for efficient drawing paths
-- Multiple algorithms: stipple_tsp, tone_aware, scribble, edge_trace
-- Export SVG files compatible with Inkscape and AxiDraw
+Start with **Form sketch**, or explore Circular scribbles, Continuous sketch, Tonal cross-hatching, Stipple dots, and 3D poly. The techniques share image analysis but keep their own marks. Wave rows and the older stipple tour remain internal compatibility implementations, outside the main style picker.
 
-### Multi-Line Mode (Issue #2) 🚧
-- Separate images into multiple color layers
-- Generate separate paths for each color
-- Recommend pen colors for each path
+## Try it
 
-## Quick Start
+Build the Mac app with `sh squiggle-draw/build-app.sh`, open `squiggle-draw/dist/Squiggle Draw.app`, and choose **Try a sample**. The bundled shell, apple, pear and pitcher, and mountain lake are generated reference images. No family photographs are included.
 
-The new default algorithm (`stipple_tsp`) produces much better results than the original:
+1. Pick a style and choose **Optimize photo**.
+2. Adjust the style settings or Background shading; regenerate to apply changes.
+3. Choose **Test the draw** to inspect the actual exported path order.
+4. For RGB, **Alternate colors while drawing** advances the inks together. Leave it off for fewer physical pen changes.
+5. Save a sketch to **BOOX Library**, check **Available on BOOX**, and enable **Share library with BOOX**. The sharing setting is remembered when you reopen the Mac app.
+6. With the BOOX connected by USB, click **Pair connected BOOX** on the Mac. In Squiggle 0.16 or later, choose **Library → Sync now**. The tablet saves Wi-Fi automatically and prefers the cable when available. Keep both devices on the same local network. The tablet retains downloaded sketches offline.
 
-```bash
-# Good quality, fast processing
-squiggle-draw single photo.jpg
-
-# Higher quality, more detail
-squiggle-draw single photo.jpg --stipple-density 2.0 --optimization-level 3-opt
-
-# Original algorithm (if needed)
-squiggle-draw single photo.jpg --algorithm edge_trace
-```
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/jamescbury/squiggle_draw.git
-cd squiggle_draw
-
-# Create virtual environment and install dependencies
-python3 -m venv .venv
-source .venv/bin/activate
-poetry install
-```
-
-## Usage
-
-### Web UI (Recommended)
-
-Launch the interactive web interface:
-
-```bash
-# Start the UI
-squiggle-draw ui
-
-# Or use the run script
-python run_ui.py
-```
-
-The UI provides:
-- 📤 Drag-and-drop image upload
-- 🎛️ Real-time parameter adjustment
-- 👁️ Live preview of results
-- 💾 One-click SVG download
-
-### CLI (Command Line Interface)
-
-#### Basic Usage
-
-```bash
-# Convert image to single line art
-squiggle-draw single photo.jpg
-
-# Specify output file
-squiggle-draw single photo.jpg -o my_art.svg
-
-# Preview edge detection before generating
-squiggle-draw preview photo.jpg
-```
-
-#### Advanced Options
-
-```bash
-# Adjust density and contrast for more detail
-squiggle-draw single photo.jpg --stipple-density 1.5 --contrast 2.0
-
-# Emphasize edges in the output
-squiggle-draw single photo.jpg --edge-weight 0.6 --stipple-density 2.0
-
-# Use advanced optimization for best path quality
-squiggle-draw single photo.jpg --optimization-level 3-opt
-
-# Try the scribble style algorithm
-squiggle-draw single photo.jpg --algorithm scribble
-
-# Use the original edge-trace algorithm
-squiggle-draw single photo.jpg --algorithm edge_trace --sample-rate 0.3
-
-# Verbose output with statistics
-squiggle-draw single photo.jpg -v
-```
-
-#### Algorithms
-
-- **stipple_tsp** (default): Modern stippling + TSP optimization - produces clean, efficient paths
-- **tone_aware**: Variable density based on image tone
-- **scribble**: Decorative circular scribbles in dark areas  
-- **edge_trace**: Original edge-based algorithm
-
-#### Algorithm Parameters
-
-For stipple-based algorithms:
-- `--stipple-density`: Point density (0.5-3.0, default 1.0)
-- `--edge-weight`: Balance edges vs tone (0-1, default 0.3)
-- `--optimization-level`: TSP solver quality (greedy/2-opt/3-opt)
-
-For edge trace algorithm:
-- `--edge-method`: Edge detection method (canny/sobel/laplacian)
-- `--sample-rate`: Point sampling rate (0-1)
-
-#### Multi-line Mode (Coming Soon)
-
-```bash
-# Multi-line mode for color separation
-squiggle-draw multi input.jpg -o output/ --colors 3
-```
-
-### GUI (Coming Soon)
-
-A graphical interface for adjusting parameters and previewing results.
-
-## Project Structure
-
-```
-squiggle_draw/
-├── src/
-│   └── squiggle_draw/
-│       ├── core/          # Core algorithms
-│       ├── processors/    # Image preprocessing
-│       ├── generators/    # SVG path generation
-│       ├── io/           # File I/O handling
-│       ├── cli/          # Command line interface
-│       └── gui/          # Graphical interface
-├── tests/                # Unit and integration tests
-├── examples/             # Example images and outputs
-└── output/              # Default output directory
-```
+The app header always shows the version/build. Hover over it to identify the running app copy.
 
 ## Development
 
-```bash
-# Run tests
-poetry run pytest
+Mac: macOS 14+, Swift 6/Xcode Command Line Tools. No external Swift packages.
 
-# Run linting
-poetry run flake8
-poetry run black .
+```sh
+cd squiggle-draw
+swift test -c release
+sh build-app.sh
 ```
 
-## License
+Android: JDK 17 or 21, Android SDK 35. Set `ANDROID_HOME` or create a local `local.properties` with your SDK path; this file is deliberately excluded from source control.
 
-MIT License
+```sh
+cd squiggle-player
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+sh tests/run.sh
+```
+
+Generate a repeatable style comparison from an explicitly chosen sample:
+
+```sh
+swift run -c release --package-path squiggle-draw SquiggleSamples \
+  squiggle-draw/Sources/SquiggleDraw/Resources/Samples/shell.png /tmp/squiggle-gallery
+```
+
+See [architecture](docs/ARCHITECTURE.md), [contributing](CONTRIBUTING.md), [release steps](docs/RELEASING.md), and [third-party references](THIRD_PARTY_NOTICES.md). The `docs` directory includes a static gallery suitable for GitHub Pages.
+
+## Current limits
+
+This is a beta. macOS builds are locally signed, not notarized. Drawing sessions are not restored after closing; saved library sketches persist. The Android build is a debug APK; signing keys are never included. BOOX firmware refresh behavior requires device testing; Canvas is the reliable fallback when direct pen initialization is unavailable. RGB + black is a four-pen interpretation, not full photographic color reproduction. Poly simulates depth in 2D.
+
+Wi-Fi sharing is opt-in, read-only HTTP protected by a random pairing address on your local network. It shares selected SVG sketches, never source photographs. Keep the address private and use a trusted network; it is not an Internet hosting service. The tablet syncs when you choose Sync now. Removing a sketch from availability takes effect on the tablet's next successful sync.
+
+MIT license covers this project's original source. Dependencies retain their own licenses. Sample-image provenance is included alongside the files.
