@@ -15,7 +15,7 @@ extension Engine {
     public static func optimize(_ image: Raster, parameters original: Parameters) throws -> OptimizationResult {
         try original.validate()
         try Task.checkCancellation()
-        let photo = try PhotoMeasurements(image, color: original.color)
+        let photo = try PhotoMeasurements(image, color: original.color && !original.colorMode.usesPhotoColors)
         var p = original
         p.matchTones = true
         p.gamma = photo.suggestedGamma
@@ -95,7 +95,7 @@ extension Engine {
         try Task.checkCancellation()
         let tones = photo.contrast < 0.25 ? "a narrow tone range" : "a broad tone range"
         let detail = texture > 0.55 ? "strong fine detail" : (texture > 0.2 ? "moderate detail" : "mostly smooth areas")
-        let color = p.style == .poly ? (p.color ? "photo colors" : "grayscale tones") : (p.color ? "RGB + black coverage" : "black ink coverage")
+        let color = p.colorMode == .fullColor ? "locally sampled photo colors" : p.colorMode == .photoPalette ? "a \(p.paletteSize)-color photo palette" : p.style == .poly ? (p.color ? "photo colors" : "grayscale tones") : (p.color ? "RGB + black coverage" : "black ink coverage")
         let summary = "Photo-based starting point for \(p.style.displayName): \(tones), \(detail), and \(color). Pen width and seed were kept; adjust the preview to taste."
         return OptimizationResult(parameters: p, summary: summary)
     }

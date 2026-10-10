@@ -24,8 +24,12 @@ func png(_ drawing:Drawing,_ url:URL) throws {
     for layer in drawing.drawingLayers(inks:Set(Ink.allCases)) {
         let hex=UInt32(layer.ink.hex.dropFirst(),radix:16)!,color=CGColor(srgbRed:Double((hex>>16)&255)/255,green:Double((hex>>8)&255)/255,blue:Double(hex&255)/255,alpha:1)
         ctx.setStrokeColor(color);ctx.setFillColor(color);ctx.setLineWidth(drawing.parameters.penWidth)
-        for (i,stroke) in layer.strokes.enumerated() {ctx.setLineWidth(drawing.parameters.penWidth*layer.widthFactor(at:i));ctx.addPath(path(stroke));ctx.strokePath()}
-        for dot in layer.dots {ctx.fillEllipse(in:CGRect(x:dot.center.x-dot.radius,y:dot.center.y-dot.radius,width:dot.radius*2,height:dot.radius*2))}
+        for (i,stroke) in layer.strokes.enumerated() {
+            let c=layer.strokeColor(at:i);ctx.setStrokeColor(c.map{CGColor(srgbRed:$0.r,green:$0.g,blue:$0.b,alpha:1)} ?? color)
+            ctx.setLineWidth(drawing.parameters.penWidth*layer.widthFactor(at:i));ctx.addPath(path(stroke));ctx.strokePath()}
+        for (i,dot) in layer.dots.enumerated() {
+            let c=layer.dotColors.isEmpty ? nil : layer.dotColors[i];ctx.setFillColor(c.map{CGColor(srgbRed:$0.r,green:$0.g,blue:$0.b,alpha:1)} ?? color)
+            ctx.fillEllipse(in:CGRect(x:dot.center.x-dot.radius,y:dot.center.y-dot.radius,width:dot.radius*2,height:dot.radius*2))}
         for face in layer.facets {
             ctx.addPath(path(face.vertices));ctx.closePath()
             if drawing.parameters.polyWireframe {ctx.strokePath()}
@@ -36,7 +40,7 @@ func png(_ drawing:Drawing,_ url:URL) throws {
     CGImageDestinationAddImage(destination,image,nil);guard CGImageDestinationFinalize(destination) else {throw DrawError.invalidImage}
 }
 let args=CommandLine.arguments
-if args.count<3 { print("Usage: swift run -c release SquiggleSamples INPUT.png OUTPUT_DIRECTORY [color|mono] [style-index] [max-dimension]");exit(2) }
+if args.count<3 { print("Usage: swift run -c release SquiggleSamples INPUT.png OUTPUT_DIRECTORY [color|mono|palette12|palette24|full] [style-index] [max-dimension]");exit(2) }
 let maximum=args.count>5 ? min(1600,max(2,Int(args[5]) ?? 960)) : 960
 let image=try raster(URL(fileURLWithPath:args[1]),maxDimension:maximum),folder=URL(fileURLWithPath:args[2],isDirectory:true)
 try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
@@ -44,6 +48,10 @@ var results=[[String:Any]]()
 for (index,style) in DrawingStyle.studioStyles.enumerated() {
     if args.count>4,let selected=Int(args[4]),index != selected {continue}
     var p=Parameters();p.style=style;p.color=args.count>3 && args[3]=="color"
+    if args.count>3 {
+        if args[3]=="full" { p.colorMode = .fullColor }
+        if args[3].hasPrefix("palette") { p.colorMode = .photoPalette;p.paletteSize=args[3]=="palette12" ? 12 : 24 }
+    }
     p=try Engine.optimize(image,parameters:p).parameters
     if args.contains("uniform") { p.toneWidth=false;p=try Engine.optimize(image,parameters:p).parameters }
     let start=Date(),drawing=try Engine.generate(image,parameters:p),size=try drawing.svgSize(inks:Set(Ink.allCases))

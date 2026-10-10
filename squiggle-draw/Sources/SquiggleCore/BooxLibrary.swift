@@ -41,13 +41,13 @@ public struct LibraryStore: Sendable {
         Self.transactionLock.lock();defer { Self.transactionLock.unlock() }
         return try readCatalog()
     }
-    public func add(svg: Data, thumbnail: Data, title: String, style: String) throws -> LibraryCatalog {
+    public func add(svg: Data, thumbnail: Data, title: String, style: String, available:Bool=true) throws -> LibraryCatalog {
         Self.transactionLock.lock();defer { Self.transactionLock.unlock() }
         var catalog=try readCatalog()
         let clean=try cleanTitle(title)
         guard !svg.isEmpty,svg.count<=32*1024*1024,thumbnail.count<=4*1024*1024 else { throw LibraryError.tooLarge }
         guard catalog.entries.count<64,catalog.entries.reduce(0,{$0+$1.bytes})+svg.count<=256*1024*1024 else { throw LibraryError.full }
-        let entry=LibraryEntry(id:UUID(),title:clean,style:String(style.prefix(100)),createdAt:Date(),bytes:svg.count,sha256:Self.hash(svg),available:true)
+        let entry=LibraryEntry(id:UUID(),title:clean,style:String(style.prefix(100)),createdAt:Date(),bytes:svg.count,sha256:Self.hash(svg),available:available)
         do {
             try svg.write(to:svgURL(id:entry.id),options:.atomic)
             try thumbnail.write(to:thumbnailURL(id:entry.id),options:.atomic)

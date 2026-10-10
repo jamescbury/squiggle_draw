@@ -3,7 +3,7 @@
 from pathlib import Path
 import re, sys
 root=Path(__file__).resolve().parents[1]
-allowed_samples={'shell.png','apple.png','pear_and_pitcher.png','mountain_lake.png'}
+allowed_samples={'watch.png', 'flower.png', 'eyeball.png', 'padlock.png', 'lemon.png', 'eyeglasses.png', 'fish.png', 'butterfly.png', 'feather.png', 'mushroom.png', 'mountain_lake.png', 'coffee.png', 'shell.png', 'pear_and_pitcher.png', 'chess_knight.png', 'apple.png'}
 allowed_gallery={f'{subject}-{style}.png' for subject in ('shell','apple','pear_and_pitcher','mountain_lake') for style in ('source','form','circular','circular-fine','circular-round','circular-uniform','continuous','hatching','stipple','poly')}
 media={'.png','.jpg','.jpeg','.heic','.gif','.tiff','.webp','.mp4','.mov','.pdf'}
 ignored={'.git','.build','.gradle','.gradle-home','build','dist','__pycache__'}

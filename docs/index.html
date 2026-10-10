@@ -28,7 +28,7 @@
 </section>
 <div class="note"><strong>From preview to pen.</strong> Test the draw follows the exported path order. RGB + black can alternate in rounds or finish one pen at a time. Save finished sketches to the BOOX Library, choose which are available, and sync them over local Wi-Fi for offline playback.</div>
 <p>These are actual generated previews, not retouched illustrations. The styles intentionally differ in texture; none is an exact photographic reproduction. Background shading can restore areas that the background estimate simplifies. The desktop app and SVG exports preserve those choices.</p>
-<footer class="footer">Squiggle Draw 0.14.1 · Squiggle player 0.17 · Source samples generated with image_gen; provenance is included with the source. Local beta builds require separate production signing for public binary releases.</footer></main>
+<footer class="footer">Squiggle Draw 0.17.0 · Squiggle player 0.17 · Source samples generated with image_gen; provenance is included with the source. Local beta builds require separate production signing for public binary releases.</footer></main>
 <script>
 const picker=document.getElementById('subject');picker.addEventListener('change',()=>{const subject=picker.value,label=picker.options[picker.selectedIndex].text;document.querySelectorAll('[data-style]').forEach(img=>{img.src=`gallery/${subject}-${img.dataset.style}.png?v=0131`;img.alt=`${label} in ${img.closest('article').querySelector('h2').textContent}`});document.getElementById('source').src=`gallery/${subject}-source.png`;document.getElementById('source').alt=`${label} sample input`;document.getElementById('download').href=`gallery/${subject}-source.png`});
 </script></body></html>

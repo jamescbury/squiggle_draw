@@ -10,6 +10,12 @@
 
 Circular scribbles optionally carry per-run width multipliers sampled from pigment at the pen position. Shared endpoints keep width changes continuous. Standard SVG stroke widths render outside the app; `data-squiggle-width-scale` carries ratios for the tablet's logical pen setting. Width runs are added after spatial ordering and retained through color partitioning. Tone compensation accounts for wider ink so shadow width replaces some of the densely overlapping geometry. Highlights use fine lines. Width changes are not counted as pen lifts.
 
+## Photo color and output presets
+
+Display presets choose initial color mode, stroke width, detail, and variable-width behavior; users can override them. Photo-palette and full-color modes build the existing monochrome tonal geometry, then sample local image colors along connected runs. Layers carry aligned optional stroke/dot color arrays alongside width factors. Quantization uses a deterministic bounded image sample and 12 or 24 palette centers. Color changes retain shared endpoints and are applied after geometry ordering and tone-width generation.
+
+Gallery storage is independent of tablet availability. Screen saves are unavailable to tablets by default; tablet-specific validation and transport controls appear for e-ink destinations. The stored format remains ordinary SVG with explicit stroke/fill colors.
+
 ## Library and transport
 
 The Mac library stores an atomic JSON index and immutable SVG/thumbnail files, each identified by UUID. A save snapshots the generated drawing, visible inks, and color order; it does not copy the photograph. Availability and names are separate catalog metadata.
@@ -21,6 +27,12 @@ Manifest schema 1 contains `libraryID` and `sketches`, each with `id`, `title`, 
 ## Playback
 
 Both apps preserve SVG document order. The tablet streams bounded SVG input into compact geometry and grows ink by traveled distance. Pen lifts add a short pause. Filled polygons finish their outline and then apply their fill. Direct BOOX ink is experimental; colored/fill/variable-width artwork uses Canvas. Automated graphics tests cannot certify physical e-ink refresh or ghosting.
+
+## Sequential drawings
+
+The desktop sequence stores library sketch IDs, order, and per-transition minutes in a separate atomic JSON file. It reads hash-verified immutable SVG snapshots through `LibraryStore`; BOOX availability remains independent. The bounded SVG reader accepts the app’s absolute line paths, dots, and polygons, retaining every stroke, its color, and its width.
+
+`SequenceTransition` schedules length-weighted erase/draw events in short spatial visits with randomized jumps. `SequenceRenderer` shortens old paths and grows new ones without moving their geometry. Source and target coverage are cached; common RGB coverage is preserved while the source-only and target-only coverage changes. This avoids eraser cuts across unrelated crossing strokes. Rendering and preparation run on an isolated worker actor; generation tokens discard stale results after playlist edits. The current pair is replaced at each boundary, and the next pair starts from the same completed image.
 
 ## Cable bootstrap
 

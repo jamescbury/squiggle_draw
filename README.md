@@ -2,21 +2,25 @@
 
 Photographs become ordered pen drawings on your Mac, then emerge stroke by stroke on a BOOX tablet.
 
-- **Squiggle Draw**: native macOS photo conversion, black or RGB + black, SVG/PNG export, drawing simulation, and a Wi-Fi sketch library.
+- **Squiggle Draw**: native macOS photo conversion, black, RGB + black, photo palettes or full color, SVG/PNG export, drawing simulation, sequential draw/erase artwork, and a Wi-Fi sketch library.
 - **Squiggle**: Android/BOOX SVG playback and an offline library synchronized from the Mac.
 
 Start with **Form sketch**, or explore Circular scribbles, Continuous sketch, Tonal cross-hatching, Stipple dots, and 3D poly. The techniques share image analysis but keep their own marks. Wave rows and the older stipple tour remain internal compatibility implementations, outside the main style picker.
 
 ## Try it
 
-Build the Mac app with `sh squiggle-draw/build-app.sh`, open `squiggle-draw/dist/Squiggle Draw.app`, and choose **Try a sample**. The bundled shell, apple, pear and pitcher, and mountain lake are generated reference images. No family photographs are included.
+Build the Mac app with `sh squiggle-draw/build-app.sh`, open `squiggle-draw/dist/Squiggle Draw.app`, and choose **Try a sample**. The sixteen bundled references include shell, apple, pear and pitcher, mountain lake, and twelve object studies. All are generated images. No family photographs are included.
 
-1. Pick a style and choose **Optimize photo**.
+1. Use **Crop photo…** to drag a box around the area you want to draw, then **Apply crop**. The workspace fits the cropped photo; **Reset crop** restores the full image. Pick a style and choose **Optimize photo**.
 2. Adjust the style settings or Background shading; regenerate to apply changes.
 3. Choose **Test the draw** to inspect the actual exported path order.
 4. For RGB, **Alternate colors while drawing** advances the inks together. Leave it off for fewer physical pen changes.
-5. Save a sketch to **BOOX Library**, check **Available on BOOX**, and enable **Share library with BOOX**. The sharing setting is remembered when you reopen the Mac app.
+5. Select an e-ink display preset, save a sketch to **Gallery**, check **Available on BOOX**, and enable **Share library with BOOX**. The sharing setting is remembered when you reopen the Mac app.
 6. With the BOOX connected by USB, click **Pair connected BOOX** on the Mac. In Squiggle 0.16 or later, choose **Library → Sync now**. The tablet saves Wi-Fi automatically and prefers the cable when available. Keep both devices on the same local network. The tablet retains downloaded sketches offline.
+
+Choose an output preset in the drawing workspace: **E-ink**, **E-ink RGB**, **TV**, **Monitor**, or **Pen plotter**. TV and monitor workflows use the local gallery without tablet warnings. Oil painting and watercolor are marked as coming soon.
+
+Open **Sequential drawings** to choose saved gallery sketches, arrange them with the arrow buttons, and set each transition’s duration. The default is 60 minutes per drawing, with accelerated previews and a separate presentation window. The last drawing transitions back to the first. Order and timing save automatically.
 
 The app header always shows the version/build. Hover over it to identify the running app copy.
 

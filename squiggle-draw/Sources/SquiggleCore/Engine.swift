@@ -10,7 +10,8 @@ public enum Ink: String, CaseIterable, Sendable {
     public var hex: String { switch self { case .red: "#dd3039"; case .green: "#218b4c"; case .blue: "#285bd7"; case .black: "#20221f" } }
     public var index: Int { Self.allCases.firstIndex(of:self)! }
 }
-public struct Pixel: Sendable {
+public struct Pixel: Sendable, Equatable {
+    public var hex:String { String(format:"#%02x%02x%02x",Int((max(0,min(1,r))*255).rounded()),Int((max(0,min(1,g))*255).rounded()),Int((max(0,min(1,b))*255).rounded())) }
     public var r: Double; public var g: Double; public var b: Double
     public init(_ r: Double, _ g: Double, _ b: Double) { self.r=r; self.g=g; self.b=b }
     public var luminance: Double { 0.2126*r + 0.7152*g + 0.0722*b }
@@ -46,7 +47,12 @@ public struct Parameters: Sendable, Equatable {
     public var lines = 180
     public var waveHeight = 0.7
     public var waveFrequency = 2.4
-    public var color = true
+    public var colorMode = DrawingColorMode.rgb
+    public var paletteSize = 24
+    public var color:Bool {
+        get { colorMode != .monochrome }
+        set { colorMode = newValue ? .rgb : .monochrome }
+    }
     public var alternateColors = false
     public var colorRounds = 20
     public var detail = 0.5
@@ -89,7 +95,7 @@ public struct Parameters: Sendable, Equatable {
     public var polyWireframe = false
     public init() {}
     public func validate() throws {
-        guard (2...100).contains(colorRounds), sketchDetail.isFinite, (0...1).contains(sketchDetail), sketchShading.isFinite, (0.2...1.2).contains(sketchShading), sketchBackground.isFinite, (0...1).contains(sketchBackground), hatchJoinReach.isFinite, (1...40).contains(hatchJoinReach), hatchSpacing.isFinite, (1...8).contains(hatchSpacing), hatchCurve.isFinite, (0...20).contains(hatchCurve), (2...8).contains(hatchPasses), curveStretch.isFinite, (1...4).contains(curveStretch), curveWander.isFinite, (0...1).contains(curveWander), cornerRounding.isFinite, (0...1).contains(cornerRounding), (500...50000).contains(stippleCount), (4...60).contains(relaxation), dotSize.isFinite, (0.3...8).contains(dotSize),
+        guard [12,24].contains(paletteSize), (2...100).contains(colorRounds), sketchDetail.isFinite, (0...1).contains(sketchDetail), sketchShading.isFinite, (0.2...1.2).contains(sketchShading), sketchBackground.isFinite, (0...1).contains(sketchBackground), hatchJoinReach.isFinite, (1...40).contains(hatchJoinReach), hatchSpacing.isFinite, (1...8).contains(hatchSpacing), hatchCurve.isFinite, (0...20).contains(hatchCurve), (2...8).contains(hatchPasses), curveStretch.isFinite, (1...4).contains(curveStretch), curveWander.isFinite, (0...1).contains(curveWander), cornerRounding.isFinite, (0...1).contains(cornerRounding), (500...50000).contains(stippleCount), (4...60).contains(relaxation), dotSize.isFinite, (0.3...8).contains(dotSize),
               polyAdaptation.isFinite, (0...1).contains(polyAdaptation), polyDetail.isFinite, (0...1).contains(polyDetail), relief.isFinite, (0...1).contains(relief),
               (20...300).contains(lines), waveHeight.isFinite, (0.1...1.5).contains(waveHeight),
               waveFrequency.isFinite, (0.3...3).contains(waveFrequency), detail.isFinite, (0...1).contains(detail), minRadius.isFinite, maxRadius.isFinite,
@@ -111,15 +117,23 @@ public struct Layer: Sendable {
     public let ink: Ink; public let centers: [Point]; public let points: [Point]
     public let strokes: [[Point]]
     /// Width multipliers for successive connected runs; an empty array means a uniform pen.
+    public let strokeColors:[Pixel]
+    public let dotColors:[Pixel]
+    public func strokeColor(at index:Int)->Pixel? { strokeColors.isEmpty ? nil : strokeColors[index] }
+    public func strokeHex(at index:Int)->String { strokeColor(at:index)?.hex ?? ink.hex }
+    public func dotHex(at index:Int)->String { dotColors.isEmpty ? ink.hex : dotColors[index].hex }
     public let widthFactors: [Double]
     public func widthFactor(at index:Int)->Double { widthFactors.isEmpty ? 1 : widthFactors[index] }
     public let dots: [Dot]
     public let facets: [Facet]
     public var hasArtwork: Bool { !points.isEmpty || !dots.isEmpty || !facets.isEmpty }
-    public init(ink: Ink, centers: [Point], points: [Point], strokes: [[Point]]? = nil, dots: [Dot] = [], facets: [Facet] = [], widthFactors:[Double] = []) {
+    public init(ink: Ink, centers: [Point], points: [Point], strokes: [[Point]]? = nil, dots: [Dot] = [], facets: [Facet] = [], widthFactors:[Double] = [],strokeColors:[Pixel] = [],dotColors:[Pixel] = []) {
         self.ink=ink; self.centers=centers; self.points=points; self.strokes=strokes ?? [points]
         self.dots=dots; self.facets=facets
         precondition(widthFactors.isEmpty || (widthFactors.count == self.strokes.count && widthFactors.allSatisfy { $0.isFinite && (0.25...6).contains($0) }))
+        precondition(strokeColors.isEmpty || strokeColors.count == self.strokes.count)
+        precondition(dotColors.isEmpty || dotColors.count == dots.count)
+        self.strokeColors=strokeColors;self.dotColors=dotColors
         self.widthFactors=widthFactors
     }
     public var length: Double { strokes.reduce(0) { sum,stroke in sum + zip(stroke,stroke.dropFirst()).reduce(0) { $0+$1.0.distance($1.1) } } }
@@ -141,7 +155,7 @@ public struct Drawing: Sendable {
                 let data="M\(Self.number(first.x)) \(Self.number(first.y))" + stroke.dropFirst().map { "L\(Self.number($0.x)) \(Self.number($0.y))" }.joined()
                 return pathHeader(layer,index:index)+data+"\"/>"
             }.joined(separator:"\n")
-            let dots=layer.dots.map { "<circle cx=\"\(Self.number($0.center.x))\" cy=\"\(Self.number($0.center.y))\" r=\"\(Self.number($0.radius))\" fill=\"\(layer.ink.hex)\" stroke=\"\(layer.ink.hex)\" stroke-width=\"0\"/>" }.joined(separator:"\n")
+            let dots=layer.dots.enumerated().map { i,dot in "<circle cx=\"\(Self.number(dot.center.x))\" cy=\"\(Self.number(dot.center.y))\" r=\"\(Self.number(dot.radius))\" fill=\"\(layer.dotHex(at:i))\" stroke=\"\(layer.dotHex(at:i))\" stroke-width=\"0\"/>" }.joined(separator:"\n")
             let facets=layer.facets.map { facet in
                 let vertices=facet.vertices.map { "\(Self.number($0.x)),\(Self.number($0.y))" }.joined(separator:" ")
                 let c=facet.color
@@ -155,7 +169,7 @@ public struct Drawing: Sendable {
     func pathHeader(_ layer:Layer,index:Int)->String {
         let factor=layer.widthFactor(at:index)
         let metadata=layer.widthFactors.isEmpty ? "" : " data-squiggle-width-scale=\"\(Self.number(factor))\""
-        return "<path fill=\"none\" stroke=\"\(layer.ink.hex)\" stroke-width=\"\(Self.number(parameters.penWidth*factor))\"\(metadata) stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\""
+        return "<path fill=\"none\" stroke=\"\(layer.strokeHex(at:index))\" stroke-width=\"\(Self.number(parameters.penWidth*factor))\"\(metadata) stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\""
     }
     private static func number(_ d: Double) -> String {
         let n=Int((d*1000).rounded()),fraction=String(abs(n%1000))
@@ -186,6 +200,14 @@ public enum Engine {
         return parameters.protectEdges ? max(parameters.minRadius,min(original,distance)) : original
     }
     public static func generate(_ image: Raster, parameters p: Parameters, progress: @Sendable (String) -> Void = {_ in}) throws -> Drawing {
+        if p.colorMode.usesPhotoColors {
+            try p.validate()
+            var geometry=p;geometry.color=false;geometry.alternateColors=false
+            if p.style == .poly { geometry.color=true }
+            let drawing=try generate(image,parameters:geometry,progress:progress)
+            progress("Choosing colors from the photograph…")
+            return try photoColored(drawing,image: image,parameters:p)
+        }
         var drawing=try generateRaw(image,parameters:p,progress:progress)
         if p.spreadAcrossCanvas && p.style != .formSketch && p.style != .crossHatch { progress("Spreading strokes across the canvas…");drawing=try spreadOrder(drawing) }
         if p.style == .circular && p.toneWidth { progress("Shaping shadow widths…");drawing=try toneWidths(drawing,image) }

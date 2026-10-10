@@ -9,18 +9,20 @@ import SquiggleCore
         guard let drawing,!busy else { return }
         mode="Test the draw"
         if testPlan != nil { playDrawTest();return }
-        testToken+=1;let request=testToken,inks=enabled
+        testToken+=1;let request=testToken,inks=enabled,tablet=medium.isEInk
         testPreparing=true;testNote="Preparing stroke order…"
         testWork=Task { [weak self] in
             let task=Task.detached(priority:.userInitiated) { () throws -> (DrawTestPlan,String) in
-                let plan=try DrawTestPlan(drawing,inks:inks)
+                let plan=try DrawTestPlan(drawing,inks:inks,fillDots:!tablet)
                 var warnings=[String]()
+                if tablet {
                 if plan.strokes.count>20000 { warnings.append("This exceeds the current BOOX player's 20,000-stroke limit. Increase spacing or export fewer ink layers before tablet playback.") }
                 let size=try drawing.svgSize(inks:drawing.parameters.style == .poly ? [.black] : inks)
                 if size.elements>20000 && plan.strokes.count<=20000 { warnings.append("This SVG exceeds the current BOOX element limit. Increase spacing or export one ink layer.") }
                 if size.fileBytes>32*1024*1024 || size.pathDataBytes>28000000 { warnings.append("This SVG exceeds the current BOOX file-size limit. Reduce detail or increase spacing.") }
                 if drawing.parameters.style == .stipple { warnings.append("BOOX plays dot outlines; it does not fill them.") }
                 if drawing.parameters.style == .poly && !drawing.parameters.polyWireframe { warnings.append("Polygon fills require BOOX Squiggle 0.13 or later. Each outline completes before its fill appears.") }
+                }
                 return (plan,warnings.joined(separator:" "))
             }
             do {
@@ -69,7 +71,8 @@ struct DrawTestControls:View {
                     Text("1×").tag(1.0);Text("100×").tag(100.0);Text("500×").tag(500.0);Text("1,000×").tag(1000.0)
                 }.frame(width:190)
             }
-            DisclosureGroup("BOOX playback settings") {
+            if model.medium.isEInk {
+            DisclosureGroup("E-ink playback settings") {
                 VStack(alignment:.leading,spacing:8) {
                     HStack { Text("Speed \(Int(model.testSpeed))").frame(width:110,alignment:.leading);Slider(value:$model.testSpeed,in:1...500,step:1) }
                     HStack { Text(String(format:"Pen width %.2f",model.testPenWidth)).frame(width:110,alignment:.leading);Slider(value:$model.testPenWidth,in:0.25...4) }
@@ -79,12 +82,13 @@ struct DrawTestControls:View {
                         Text("×")
                         TextField("Height",value:$model.testCanvasHeight,format:.number).frame(width:80)
                     }.textFieldStyle(.roundedBorder)
-                    Text("Matches SVG order, BOOX pen width and shadow thickness, polygon fills after each outline, and 0.2-second pen lifts. Set the drawing area to your tablet's logical canvas size. E-ink refresh effects and device delays are not simulated.").font(.caption).foregroundStyle(.secondary)
+                    Text("Matches SVG order, tablet pen width and shadow thickness, polygon fills after each outline, and 0.2-second pen lifts. Set the drawing area to your tablet's logical canvas size. E-ink refresh effects and device delays are not simulated.").font(.caption).foregroundStyle(.secondary)
                 }.padding(.top,6)
             }
-            if let plan=model.testPlan {
+            }
+            if model.medium.isEInk,let plan=model.testPlan {
                 let seconds=plan.estimatedSeconds(speed:model.testSpeed,canvasWidth:model.testCanvasWidth,canvasHeight:model.testCanvasHeight)
-                Text("\((plan.penLifts + (plan.strokes.isEmpty ? 0 : 1)).formatted()) pen strokes · estimated tablet drawing time \(duration(seconds))").font(.caption).foregroundStyle(.secondary)
+                Text("\((plan.penLifts + (plan.strokes.isEmpty ? 0 : 1)).formatted()) pen strokes · estimated drawing time \(duration(seconds))").font(.caption).foregroundStyle(.secondary)
             }
             if !model.testNote.isEmpty { Text(model.testNote).font(.caption).foregroundStyle(.orange) }
         }.padding(.horizontal,18).padding(.bottom,12)

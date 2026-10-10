@@ -7,7 +7,7 @@ import SquiggleCore
 final class BooxLibraryModel: ObservableObject {
     @Published var catalog: LibraryCatalog?
     @Published var busy=false
-    @Published var message="Save drawings here, then choose which ones your BOOX can download."
+    @Published var message="Save artwork here for your displays and drawing sequences."
     @Published var error:String?
     let store:LibraryStore
     let server=LibraryServer()
@@ -36,24 +36,28 @@ final class BooxLibraryModel: ObservableObject {
         guard !studio.outdated else { error="Regenerate the drawing to apply your changed settings before saving it to the library.";return }
         let inks=drawing.parameters.style == .poly ? Set([Ink.black]) : studio.enabled
         guard drawing.layers.contains(where:{inks.contains($0.ink) && $0.hasArtwork}) else { error="Enable an ink layer containing artwork first.";return }
-        let title=studio.name,style=drawing.parameters.style.rawValue
-        perform(success:"Saved \(title) on this Mac. Keep sharing on, then choose Sync now in the BOOX Library.") { store in
+        let title=studio.name,style=drawing.parameters.style.rawValue,tablet=studio.medium.isEInk
+        perform(success:tablet ? "Saved \(title). Choose Sync now on your tablet to download it." : "Saved \(title) to your gallery for display and sequences.") { store in
             let size=try drawing.svgSize(inks:inks)
-            guard size.elements<=20000,size.pathDataBytes<=28000000,size.fileBytes<=32*1024*1024 else {
-                throw LibraryUIError.limit
+            guard (!tablet || (size.elements<=20000 && size.pathDataBytes<=28000000)),size.fileBytes<=32*1024*1024 else {
+                throw tablet ? LibraryUIError.limit : LibraryUIError.galleryLimit
             }
             let svg=Data(drawing.svg(inks:inks).utf8)
             let thumbnail=try Self.thumbnail(drawing,inks:inks)
-            return try store.add(svg:svg,thumbnail:thumbnail,title:title,style:style)
+            return try store.add(svg:svg,thumbnail:thumbnail,title:title,style:style,available:tablet)
         }
     }
     func update(_ entry:LibraryEntry,title:String?=nil,available:Bool?=nil) {
-        perform(success:"Library updated. Choose Sync now on your BOOX to apply changes.") {
-            try $0.update(id:entry.id,title:title,available:available)
+        perform(success:"Gallery updated.") { store in
+            if available == true {
+                let data=try store.verifiedSVG(entry)
+                guard data.count<=28000000,try SequenceArtwork(svg:data).strokes.count<=19990 else { throw LibraryUIError.limit }
+            }
+            return try store.update(id:entry.id,title:title,available:available)
         }
     }
     func remove(_ entry:LibraryEntry) {
-        perform(success:"Removed from this library. The BOOX copy will be removed on its next successful sync.") { try $0.remove(id:entry.id) }
+        perform(success:"Removed from the gallery.") { try $0.remove(id:entry.id) }
     }
     nonisolated private static func thumbnail(_ drawing:Drawing,inks:Set<Ink>) throws ->Data {
         let scale=min(1,420/Double(max(drawing.width,drawing.height)))
@@ -71,8 +75,10 @@ final class BooxLibraryModel: ObservableObject {
     }
 }
 private enum LibraryUIError:LocalizedError {
-    case limit
-    var errorDescription:String? { "This drawing exceeds the BOOX player's limits. Reduce detail, increase spacing, or select fewer inks, then regenerate. The library accepts up to 20,000 SVG elements and 32 MB per sketch." }
+    case limit,galleryLimit
+    var errorDescription:String? {
+        if self == .galleryLimit { return "This drawing exceeds the gallery’s 32 MB limit. Reduce detail or export it as an SVG instead." }
+        return "This drawing exceeds the BOOX player's limits. Reduce detail, increase spacing, or select fewer inks, then regenerate. The library accepts up to 20,000 SVG elements and 32 MB per sketch." }
 }
 
 struct BooxLibraryView:View {
@@ -83,18 +89,20 @@ struct BooxLibraryView:View {
         HStack(spacing:0) {
             ScrollView {
                 VStack(alignment:.leading,spacing:18) {
-                    Label("BOOX Library",systemImage:"books.vertical").font(.title2.weight(.semibold))
-                    Text("Keep your favorite sketches ready to draw on your tablet.").foregroundStyle(.secondary)
+                    Label("Gallery",systemImage:"square.grid.2x2").font(.title2.weight(.semibold))
+                    Text("Save artwork for your displays and drawing sequences.").foregroundStyle(.secondary)
                     Button { library.add(studio:studio) } label: { Label("Add current drawing",systemImage:"plus").frame(maxWidth:.infinity) }
                         .buttonStyle(.borderedProminent).controlSize(.large)
                         .disabled(studio.drawing==nil || studio.busy || library.busy || library.catalog==nil)
                     Text("Saves the generated drawing with its selected inks and color order. Each save creates a separate sketch.").font(.caption).foregroundStyle(.secondary)
                     Divider()
+                    if studio.medium.isEInk {
                     LibrarySharingView(server:library.server,store:library.store,catalog:library.catalog)
                     Divider()
                     Text("Available on BOOX").font(.headline)
                     Text("Checked sketches are ready to transfer. With sharing on, choose Library → Sync now on your BOOX to download them. Unchecking removes the tablet copy on its next sync and keeps the sketch here.").font(.caption).foregroundStyle(.secondary)
                     Text("Downloaded sketches work offline. Your photographs stay on this Mac.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }.padding(22)
             }.frame(width:310).background(Color(nsColor:.windowBackgroundColor))
             Divider()
@@ -103,7 +111,7 @@ struct BooxLibraryView:View {
                     Text("Saved sketches").font(.title2.weight(.semibold))
                     Spacer()
                     if let catalog=library.catalog {
-                        Text("\(catalog.entries.filter(\.available).count) selected for BOOX · \(catalog.entries.count) saved on Mac").foregroundStyle(.secondary)
+                        Text(studio.medium.isEInk ? "\(catalog.entries.filter(\.available).count) selected for BOOX · \(catalog.entries.count) saved on Mac" : "\(catalog.entries.count) saved on Mac").foregroundStyle(.secondary)
                     }
                     if library.busy { ProgressView().controlSize(.small) }
                 }
@@ -114,7 +122,7 @@ struct BooxLibraryView:View {
                     ScrollView {
                         LazyVGrid(columns:[GridItem(.adaptive(minimum:230,maximum:330))],spacing:18) {
                             ForEach(library.catalog?.entries ?? []) { entry in
-                                LibrarySketchCard(entry:entry,thumbnailURL:library.store.thumbnailURL(id:entry.id),busy:library.busy,
+                                LibrarySketchCard(entry:entry,thumbnailURL:library.store.thumbnailURL(id:entry.id),busy:library.busy,showBOOX:studio.medium.isEInk,
                                     update:{ title,available in library.update(entry,title:title,available:available) },remove:{deleting=entry})
                             }
                         }.padding(2)
@@ -174,6 +182,7 @@ private struct LibrarySketchCard:View {
     let entry:LibraryEntry
     let thumbnailURL:URL
     let busy:Bool
+    let showBOOX:Bool
     let update:(String?,Bool?)->Void
     let remove:()->Void
     @State private var title=""
@@ -189,7 +198,7 @@ private struct LibrarySketchCard:View {
             }
             Text(entry.style).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Toggle("Available on BOOX",isOn:Binding(get:{entry.available},set:{update(nil,$0)})).toggleStyle(.checkbox)
+                if showBOOX { Toggle("Available on BOOX",isOn:Binding(get:{entry.available},set:{update(nil,$0)})).toggleStyle(.checkbox) }
                 Spacer()
                 Button(role:.destructive,action:remove) {Image(systemName:"trash")}.buttonStyle(.borderless).help("Remove from library")
             }

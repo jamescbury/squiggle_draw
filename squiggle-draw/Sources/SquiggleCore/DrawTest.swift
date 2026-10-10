@@ -45,7 +45,7 @@ public struct DrawTestPlan:Sendable {
     public let ends:[Double]
     public var penLifts:Int { max(0,strokes.filter { !$0.continues }.count-1) }
     public var totalLength:Double { ends.last ?? 0 }
-    public init(_ drawing:Drawing,inks:Set<Ink>) throws {
+    public init(_ drawing:Drawing,inks:Set<Ink>,fillDots:Bool=false) throws {
         width=drawing.width;height=drawing.height
         var output=[TestStroke](),ends=[Double](),total=0.0
         func add(_ ink:Ink,_ points:[Point],color:Pixel? = nil,fill:Pixel? = nil,widthFactor:Double=1,variable:Bool=false) throws {
@@ -57,12 +57,15 @@ public struct DrawTestPlan:Sendable {
             if s.length>1e-9 { output.append(s);total+=s.length;ends.append(total) }
         }
         for layer in drawing.drawingLayers(inks:drawing.parameters.style == .poly ? [.black] : inks) {
-            for (i,stroke) in layer.strokes.enumerated() { if i%128==0 { try Task.checkCancellation() };try add(layer.ink,stroke,widthFactor:layer.widthFactor(at:i),variable:!layer.widthFactors.isEmpty) }
+            for (i,stroke) in layer.strokes.enumerated() { if i%128==0 { try Task.checkCancellation() };try add(layer.ink,stroke,color:layer.strokeColor(at:i),widthFactor:layer.widthFactor(at:i),variable:!layer.widthFactors.isEmpty || !layer.strokeColors.isEmpty) }
             for (i,dot) in layer.dots.enumerated() {
                 if i%128==0 { try Task.checkCancellation() }
                 let steps=max(16,min(256,Int(ceil(Double.pi*sqrt(dot.radius/0.03)))))
                 let points=(0...steps).map { k in let t=2*Double.pi*Double(k)/Double(steps);return Point(dot.center.x+dot.radius*cos(t),dot.center.y+dot.radius*sin(t)) }
-                try add(layer.ink,points)
+                let color=layer.dotColors.isEmpty ? nil : layer.dotColors[i]
+                let hex=UInt32(layer.ink.hex.dropFirst(),radix:16)!
+                let dotColor=color ?? Pixel(Double(hex>>16&255)/255,Double(hex>>8&255)/255,Double(hex&255)/255)
+                try add(layer.ink,points,color:color,fill:fillDots ? dotColor : nil)
             }
             for (i,facet) in layer.facets.enumerated() {
                 if i%128==0 { try Task.checkCancellation() }
@@ -158,7 +161,7 @@ extension Drawing {
             for (i,dot) in layer.dots.enumerated() {
                 if i%512==0 { try Task.checkCancellation() }
                 elements+=1
-                fileBytes+="<circle cx=\"\(number(dot.center.x))\" cy=\"\(number(dot.center.y))\" r=\"\(number(dot.radius))\" fill=\"\(layer.ink.hex)\" stroke=\"\(layer.ink.hex)\" stroke-width=\"0\"/>".utf8.count
+                fileBytes+="<circle cx=\"\(number(dot.center.x))\" cy=\"\(number(dot.center.y))\" r=\"\(number(dot.radius))\" fill=\"\(layer.dotHex(at:i))\" stroke=\"\(layer.dotHex(at:i))\" stroke-width=\"0\"/>".utf8.count
             }
             for (i,facet) in layer.facets.enumerated() {
                 if i%512==0 { try Task.checkCancellation() }

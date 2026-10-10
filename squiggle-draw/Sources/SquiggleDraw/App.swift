@@ -25,8 +25,18 @@ struct SquiggleDrawApp: App {
 }
 @MainActor
 final class Studio: ObservableObject {
-    @Published var parameters:Parameters = { var p=Parameters();p.style = .formSketch;p.color=false;return p }()
+    @Published var parameters:Parameters = { var p=Parameters();p.style = .formSketch;return (DisplayMedium(rawValue:UserDefaults.standard.string(forKey:"displayMedium") ?? "") ?? .eInk).applying(to:p) }()
+    @Published var medium:DisplayMedium = DisplayMedium(rawValue:UserDefaults.standard.string(forKey:"displayMedium") ?? "") ?? .eInk
+    @Published var artFinish="Pen drawing"
+    func selectMedium(_ value:DisplayMedium) {
+        cancel();invalidateDrawTest();medium=value;UserDefaults.standard.set(value.rawValue,forKey:"displayMedium");parameters=value.applying(to:parameters);enabled=Set(Ink.allCases)
+        testCanvasWidth=value.isEInk ? 800 : 1920;testCanvasHeight=value.isEInk ? 1100 : 1080
+        optimizationSummary="";status="Preset applied · regenerate to use these settings"
+    }
     @Published var raster: Raster?
+    @Published var cropSource: Raster?
+    @Published var cropRect=CGRect(x:0,y:0,width:1,height:1)
+    var hasCrop:Bool { cropRect != CGRect(x:0,y:0,width:1,height:1) }
     @Published var original: NSImage?
     @Published var drawing: Drawing?
     @Published var busy=false
@@ -74,6 +84,7 @@ final class Studio: ObservableObject {
             do {
                 let image=try await Task.detached(priority:.userInitiated) { try Self.decode(url) }.value
                 guard let self,self.token==request,!Task.isCancelled else { return }
+                self.cropSource=image;self.cropRect=CGRect(x:0,y:0,width:1,height:1);self.zoom=1
                 self.raster=image
                 self.original=Self.image(image)
                 self.invalidateDrawTest();self.drawing=nil;self.optimizationSummary="";self.name=url.deletingPathExtension().lastPathComponent
@@ -84,6 +95,16 @@ final class Studio: ObservableObject {
                 self.busy=false;self.error=error.localizedDescription;self.status="Could not open image"
             }
         }
+    }
+    func applyCrop(_ rect:CGRect) {
+        guard let source=cropSource else { return }
+        do {
+            let cropped=try source.cropped(to:rect)
+            cancel();invalidateDrawTest();drawing=nil;optimizationSummary="";error=nil
+            cropRect=rect;raster=cropped;original=Self.image(cropped);zoom=1;mode="Original"
+            status="\(cropped.width) × \(cropped.height) · ready to generate"
+            if autoOptimize { optimize() }
+        } catch { self.error="Choose a larger crop area." }
     }
     nonisolated static func decode(_ url: URL) throws -> Raster {
         guard let source=CGImageSourceCreateWithURL(url as CFURL,nil),let metadata=CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
@@ -190,9 +211,13 @@ func cgPath(_ points:[Point],closed:Bool=false) -> CGPath {
 struct CachedLayer {
     let ink: Ink; let path: CGPath; let guide: CGPath; let dots: CGPath
     let facets: [(CGPath,Pixel)]
-    let widths: [(CGPath,Double)]
+    let widths: [(CGPath,Double,Pixel?)]
+    let coloredDots:[(CGPath,Pixel)]
     init(_ layer:Layer,style:DrawingStyle,spread:Bool=false) {
-        widths=layer.widthFactors.isEmpty ? [] : layer.strokes.enumerated().map { (cgPath($0.element),layer.widthFactor(at:$0.offset)) }
+        widths=layer.widthFactors.isEmpty && layer.strokeColors.isEmpty ? [] : layer.strokes.enumerated().map { (cgPath($0.element),layer.widthFactor(at:$0.offset),layer.strokeColor(at:$0.offset)) }
+        coloredDots=layer.dotColors.isEmpty ? [] : layer.dots.enumerated().map { i,dot in
+            (CGPath(ellipseIn:CGRect(x:dot.center.x-dot.radius,y:dot.center.y-dot.radius,width:2*dot.radius,height:2*dot.radius),transform:nil),layer.dotColors[i])
+        }
         ink=layer.ink;path=layerPath(layer,tracing:false,style:style);guide=layerPath(layer,tracing:true,style:style,spread:spread)
         let disks=CGMutablePath()
         for dot in layer.dots { disks.addEllipse(in:CGRect(x:dot.center.x-dot.radius,y:dot.center.y-dot.radius,width:2*dot.radius,height:2*dot.radius)) }
@@ -202,10 +227,18 @@ struct CachedLayer {
 func paint(_ layer:CachedLayer,in ctx:CGContext,parameters:Parameters,tracing:Bool) {
     ctx.setStrokeColor(inkColor(layer.ink).cgColor);ctx.setLineWidth(tracing ? 0.5 : parameters.penWidth)
     if !tracing && !layer.widths.isEmpty {
-        for (path,factor) in layer.widths { ctx.setLineWidth(parameters.penWidth*factor);ctx.addPath(path);ctx.strokePath() }
+        for (path,factor,color) in layer.widths {
+            ctx.setStrokeColor(color.map{CGColor(srgbRed:$0.r,green:$0.g,blue:$0.b,alpha:1)} ?? inkColor(layer.ink).cgColor)
+            ctx.setLineWidth(parameters.penWidth*factor);ctx.addPath(path);ctx.strokePath()
+        }
     } else { ctx.addPath(tracing ? layer.guide : layer.path);ctx.strokePath() }
     ctx.addPath(layer.dots)
-    if tracing { ctx.strokePath() } else { ctx.setFillColor(inkColor(layer.ink).cgColor);ctx.fillPath() }
+    if tracing { ctx.strokePath() } else { ctx.setFillColor(inkColor(layer.ink).cgColor);
+        if layer.coloredDots.isEmpty { ctx.fillPath() } else {
+            ctx.beginPath()
+            for (path,color) in layer.coloredDots { ctx.setFillColor(CGColor(srgbRed:color.r,green:color.g,blue:color.b,alpha:1));ctx.addPath(path);ctx.fillPath() }
+        }
+    }
     for (path,color) in layer.facets {
         ctx.addPath(path)
         if tracing || parameters.polyWireframe { ctx.setStrokeColor(inkColor(layer.ink).cgColor);ctx.setLineWidth(tracing ? 0.5 : parameters.penWidth);ctx.strokePath() }
@@ -238,8 +271,10 @@ func layerPath(_ layer:Layer,tracing:Bool,style:DrawingStyle,spread:Bool=false) 
 }
 struct StudioView: View {
     @ObservedObject var model: Studio
-    @StateObject private var library=BooxLibraryModel()
-    @State private var tab="Draw"
+    @StateObject var library=BooxLibraryModel()
+    @StateObject private var sequence=SequentialDrawingsModel()
+    @State var tab="Draw"
+    @State var cropping=false
     var body: some View {
         VStack(spacing:0) {
             HStack {
@@ -253,148 +288,36 @@ struct StudioView: View {
             Divider()
             Picker("Workspace",selection:$tab) {
                 Label("Draw",systemImage:"scribble.variable").tag("Draw")
-                Label("BOOX Library",systemImage:"books.vertical").tag("BOOX Library")
-            }.pickerStyle(.segmented).frame(width:340).padding(12)
+                Label("Gallery",systemImage:"square.grid.2x2").tag("BOOX Library")
+                Label("Sequential drawings",systemImage:"play.rectangle.on.rectangle").tag("Sequential drawings")
+            }.pickerStyle(.segmented).frame(width:560).padding(12)
             Divider()
             if tab=="Draw" { drawingWorkspace }
-            else { BooxLibraryView(library:library,studio:model) }
+            else if tab=="BOOX Library" { BooxLibraryView(library:library,studio:model) }
+            else { SequentialDrawingsView(model:sequence,library:library) }
 
+        }
+        .sheet(isPresented:$cropping) {
+            if let source=model.cropSource {
+                PhotoCropView(source:source,selection:model.cropRect) { rect in
+                    cropping=false
+                    if let rect { model.applyCrop(rect) }
+                }
+            }
         }
         .onChange(of:tab) { if tab != "Draw" { model.pauseDrawTest() } }
         .onDisappear { model.cancel();model.invalidateDrawTest() }
         .onChange(of:model.enabled) { model.invalidateDrawTest();if model.mode=="Test the draw" { model.startDrawTest() } }
         .onChange(of:model.mode) { if model.mode=="Test the draw" && model.testPlan==nil && !model.testPreparing { model.startDrawTest() };if model.mode != "Test the draw" { model.pauseDrawTest() } }
         .onChange(of:model.parameters.style) { model.optimizationSummary="" }
+        .onChange(of:model.parameters.colorMode) { model.enabled=Set(Ink.allCases);model.invalidateDrawTest() }
         .onChange(of:model.parameters.minRadius) { if model.parameters.maxRadius<model.parameters.minRadius { model.parameters.maxRadius=model.parameters.minRadius } }
         .onChange(of:model.parameters.maxRadius) { if model.parameters.minRadius>model.parameters.maxRadius { model.parameters.minRadius=model.parameters.maxRadius } }
     }
     private var drawingWorkspace: some View {
         VStack(spacing:0) {
             HStack(spacing:0) {
-                ScrollView {
-                    VStack(alignment:.leading,spacing:20) {
-                        Button(action:model.open) { Label("Open image…",systemImage:"plus") }.buttonStyle(.bordered).controlSize(.large).frame(maxWidth:.infinity)
-                        Menu("Try a sample") {
-                            Button("Shell") {model.openSample("shell")}
-                            Button("Apple") {model.openSample("apple")}
-                            Button("Pear and pitcher") {model.openSample("pear_and_pitcher")}
-                            Button("Mountain lake") {model.openSample("mountain_lake")}
-                        }
-                        Text("INKS").font(.caption).foregroundStyle(.secondary)
-                        Picker("Rendering",selection:$model.parameters.color) { Text(model.parameters.style == .poly ? "Photo colors" : "RGB + Black").tag(true);Text("Black only").tag(false) }.pickerStyle(.segmented)
-                        if model.parameters.style != .poly { HStack { ForEach(Ink.allCases,id:\.self) { ink in
-                            Toggle(isOn:Binding(get:{model.enabled.contains(ink)},set:{on in if on { model.enabled.insert(ink) } else { model.enabled.remove(ink) }})) {
-                                Circle().fill(Color(nsColor:inkColor(ink))).frame(width:12,height:12);Text(ink.rawValue.capitalized).font(.caption)
-                            }.toggleStyle(.checkbox)
-                        } } }
-                        Group {
-                            Toggle("Alternate colors while drawing",isOn:$model.parameters.alternateColors)
-                                .disabled(!model.parameters.color || model.parameters.style == .poly)
-                            if model.parameters.style == .poly {
-                                Text("Color alternation is available for pen drawing styles. 3D poly uses photo colors.").font(.caption).foregroundStyle(.secondary)
-                            } else if !model.parameters.color {
-                                Text("Choose RGB + Black above to enable color alternation.").font(.caption).foregroundStyle(.secondary)
-                            }
-                            if model.parameters.alternateColors && model.parameters.color && model.parameters.style != .poly {
-                                Picker("Switch frequency",selection:$model.parameters.colorRounds) {
-                                    Text("Occasional · 8 rounds").tag(8)
-                                    Text("Regular · 20 rounds").tag(20)
-                                    Text("Frequent · 50 rounds").tag(50)
-                                    Text("Very frequent · 100 rounds").tag(100)
-                                }
-                                Text("Each round advances every ink. Continuous lines pause and resume at the same point. Preview and combined SVG use this order.").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text("Leave off for full passes with one pen at a time. Export one pen always keeps that pen's original paths.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Divider()
-                        Text("DRAWING").font(.caption).foregroundStyle(.secondary)
-                        Picker("Style",selection:$model.parameters.style) {
-                            ForEach(DrawingStyle.studioStyles,id:\.self) { Text($0.displayName).tag($0) }
-                        }
-                        Button(action:model.optimize) { Label("Optimize photo",systemImage:"wand.and.stars").frame(maxWidth:.infinity) }.buttonStyle(.bordered).controlSize(.large).disabled(model.raster==nil || model.busy)
-                        Toggle("Auto optimize new photos",isOn:$model.autoOptimize)
-                        if !model.optimizationSummary.isEmpty { Text(model.optimizationSummary).font(.caption).foregroundStyle(.secondary) }
-                        if model.parameters.style == .formSketch {
-                            slider("Feature detail",value:$model.parameters.sketchDetail,range:0...1,format:"%.2f")
-                            Toggle("Join nearby shading strokes",isOn:$model.parameters.connectHatches)
-                            Text("Builds contours first, follows surface directions, then deepens shadows and adds fine accents. Pen lifts preserve highlights. Background shading controls smooth areas connected to the image border.").font(.caption).foregroundStyle(.secondary)
-                        } else if model.parameters.style == .waves {
-                            VStack(spacing:7) {
-                                HStack { Text("Number of lines");Spacer();Text("\(model.parameters.lines)").foregroundStyle(.secondary) }
-                                Slider(value:Binding(get:{Double(model.parameters.lines)},set:{model.parameters.lines=Int($0)}),in:20...300,step:1)
-                            }
-                            slider("Wave height",value:$model.parameters.waveHeight,range:0.1...1.5,format:"%.2f")
-                            slider("Wave frequency",value:$model.parameters.waveFrequency,range:0.3...3,format:"%.2f")
-                        } else if model.parameters.style == .circular {
-                        slider("Detail",value:$model.parameters.detail,range:0...1,format:"%.2f")
-                        slider("Smallest loop",value:$model.parameters.minRadius,range:4...60,format:"%.1f px")
-                        slider("Largest loop",value:$model.parameters.maxRadius,range:30...160,format:"%.1f px")
-                        slider("Loop spacing",value:$model.parameters.spacing,range:0.3...3,format:"%.2f")
-                        Toggle("Thicker lines in shadows",isOn:$model.parameters.toneWidth)
-                        if model.parameters.toneWidth { slider("Shadow thickness",value:$model.parameters.shadowWidth,range:1...6,format:"%.1f×") }
-                        Text("Loops bend and flatten along the photo’s edges while staying broad along the form. Variable width plays on BOOX 0.15 or later; turn shadow widths off for a fixed-width physical pen.").font(.caption).foregroundStyle(.secondary)
-                        } else if model.parameters.style == .crossHatch {
-                            slider("Feature detail",value:$model.parameters.sketchDetail,range:0...1,format:"%.2f")
-                            slider("Hatch spacing",value:$model.parameters.hatchSpacing,range:1...8,format:"%.2f px")
-                            slider("Curve bend",value:$model.parameters.hatchCurve,range:0...20,format:"%.1f px")
-                            VStack(spacing:7) {
-                                HStack { Text("Shading layers");Spacer();Text("\(model.parameters.hatchPasses)").foregroundStyle(.secondary) }
-                                Slider(value:Binding(get:{Double(model.parameters.hatchPasses)},set:{model.parameters.hatchPasses=Int($0)}),in:2...8,step:1)
-                            }
-                            Toggle("Connect hatch ends",isOn:$model.parameters.connectHatches)
-                            if model.parameters.connectHatches { slider("Connection reach",value:$model.parameters.hatchJoinReach,range:1...40,format:"%.1f px") }
-                            Text("Nearby ends join within each shading stage. Increase Connection reach for fewer pen lifts.").font(.caption).foregroundStyle(.secondary)
-                            Text("Curved strokes cross in layers, deepening the shadows while preserving highlights.").font(.caption).foregroundStyle(.secondary)
-                        } else if model.parameters.style == .flowing {
-                            slider("Detail",value:$model.parameters.detail,range:0...1,format:"%.2f")
-                            slider("Smallest sweep",value:$model.parameters.minRadius,range:0.3...60,format:"%.1f px")
-                            slider("Largest sweep",value:$model.parameters.maxRadius,range:30...160,format:"%.1f px")
-                            slider("Curve length",value:$model.parameters.curveStretch,range:1...4,format:"%.2f")
-                            slider("Wandering",value:$model.parameters.curveWander,range:0...1,format:"%.2f")
-                            slider("Stroke spacing",value:$model.parameters.spacing,range:0.3...3,format:"%.2f")
-                            Text("Long, crossing curves follow the photo’s forms. Lifts across blank areas protect highlights.").font(.caption).foregroundStyle(.secondary)
-                        } else if model.parameters.style == .stipple || model.parameters.style == .singleLine {
-                            VStack(spacing:7) {
-                                HStack { Text(model.parameters.style == .singleLine ? "Path points" : "Dot count");Spacer();Text(model.parameters.stippleCount.formatted()).foregroundStyle(.secondary) }
-                                Slider(value:Binding(get:{Double(model.parameters.stippleCount)},set:{model.parameters.stippleCount=Int($0)}),in:500...50000,step:100)
-                            }
-                            if model.parameters.style == .stipple { slider("Dot size",value:$model.parameters.dotSize,range:0.3...8,format:"%.2f") }
-                            else {
-                                slider("Corner rounding",value:$model.parameters.cornerRounding,range:0...1,format:"%.2f")
-                                Text("A rounded route connecting stipple points.").font(.caption).foregroundStyle(.secondary)
-                            }
-                            VStack(spacing:7) {
-                                HStack { Text("Relaxation passes");Spacer();Text("\(model.parameters.relaxation)").foregroundStyle(.secondary) }
-                                Slider(value:Binding(get:{Double(model.parameters.relaxation)},set:{model.parameters.relaxation=Int($0)}),in:4...60,step:1)
-                            }
-                        } else {
-                            slider("Facet detail",value:$model.parameters.polyDetail,range:0...1,format:"%.2f")
-                            slider("Shape size variation",value:$model.parameters.polyAdaptation,range:0...1,format:"%.2f")
-                            slider("Depth shading",value:$model.parameters.relief,range:0...1,format:"%.2f")
-                            Toggle("Wireframe for pen drawing",isOn:$model.parameters.polyWireframe)
-                            Text("Smaller shapes preserve detailed regions; larger shapes cover smooth areas. Filled faces use photo colors; wireframe exports triangle outlines.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        if [.formSketch,.circular,.flowing,.crossHatch].contains(model.parameters.style) { slider("Shading depth",value:$model.parameters.sketchShading,range:0.2...1.2,format:"%.2f") }
-                        slider("Background shading",value:$model.parameters.sketchBackground,range:0...1,format:"%.2f")
-                        Text("Leave smooth backgrounds as paper, or increase to restore them. Increase this if the background estimate removes part of your subject.").font(.caption).foregroundStyle(.secondary)
-                        slider("Tone",value:$model.parameters.gamma,range:0.3...3,format:"%.2f")
-                        if model.parameters.style != .stipple && (model.parameters.style != .poly || model.parameters.polyWireframe) { slider("Pen width",value:$model.parameters.penWidth,range:0.1...2,format:"%.2f px") }
-                        if model.parameters.style == .waves || model.parameters.style == .circular || model.parameters.style == .flowing || model.parameters.style == .crossHatch { Toggle("Match photo tones",isOn:$model.parameters.matchTones) }
-                        if model.parameters.style == .circular || model.parameters.style == .flowing { Toggle(model.parameters.style == .circular ? "Bend loops along edges" : "Protect edges",isOn:$model.parameters.protectEdges) }
-                        if model.parameters.style != .waves {
-                            HStack { Text("Seed");TextField("Seed",value:$model.parameters.seed,format:.number).textFieldStyle(.roundedBorder).frame(width:100);Spacer() }
-                        }
-                        if ![.formSketch,.crossHatch].contains(model.parameters.style) { Toggle("Encourage canvas coverage",isOn:$model.parameters.spreadAcrossCanvas)
-                        Text("Movement gently favors underdrawn areas while keeping long strokes and local crossings.").font(.caption).foregroundStyle(.secondary) }
-                        Button(action:{model.busy ? model.cancel() : model.generate()}) { Text(model.busy ? "Cancel generation" : "Generate drawing").frame(maxWidth:.infinity) }.buttonStyle(.borderedProminent).tint(Color(nsColor:NSColor(srgbRed:0.2,green:0.38,blue:0.27,alpha:1))).controlSize(.large).disabled(model.raster==nil)
-                        Button(action:model.startDrawTest) { Label("Test the draw",systemImage:"play.circle").frame(maxWidth:.infinity) }.buttonStyle(.bordered).controlSize(.large).disabled(model.drawing==nil || model.busy || model.testPreparing)
-                        Text(model.parameters.style == .poly ? "Photo processing stays on your Mac." : "Photo processing stays on your Mac. RGB + Black is a stylized four-pen rendering.").font(.caption).foregroundStyle(.secondary)
-                        Divider()
-                        HStack { Button("Export SVG…") { model.exportSVG() };Button("PNG…",action:model.exportPNG) }.disabled(model.drawing==nil || model.busy)
-                        Button("Add to BOOX Library") { library.add(studio:model);tab="BOOX Library" }.disabled(model.drawing==nil || model.busy || library.busy)
-                        Menu("Export one pen…") { ForEach(Ink.allCases,id:\.self) { ink in Button(ink.rawValue.capitalized) { model.exportSVG(only:ink) }.disabled(!(model.drawing?.layers.contains(where:{$0.ink==ink && $0.hasArtwork}) ?? false)) } }.disabled(model.drawing==nil || model.busy || model.drawing?.parameters.style == .poly)
-                    }.padding(22)
-                }.frame(width:330).background(Color(nsColor:.windowBackgroundColor))
+                drawingInspector
                 Divider()
                 VStack(spacing:0) {
                     HStack {
@@ -409,7 +332,7 @@ struct StudioView: View {
                             ZStack {
                                 Color.white
                                 if model.mode=="Original",let original=model.original { Image(nsImage:original).resizable().aspectRatio(contentMode:.fit) }
-                                else if model.mode=="Test the draw",let plan=model.testPlan { DrawTestPreview(plan:plan,state:model.testState,penWidth:model.testPenWidth/plan.fitScale(canvasWidth:model.testCanvasWidth,canvasHeight:model.testCanvasHeight)) }
+                                else if model.mode=="Test the draw",let plan=model.testPlan { DrawTestPreview(plan:plan,state:model.testState,penWidth:model.medium.isEInk ? model.testPenWidth/plan.fitScale(canvasWidth:model.testCanvasWidth,canvasHeight:model.testCanvasHeight) : model.drawing?.parameters.penWidth ?? 0.7) }
                                 else if model.mode=="Test the draw" { ProgressView(model.testPreparing ? "Preparing playback…" : "Choose Test the draw to prepare playback") }
                                 else if let drawing=model.drawing { DrawingPreview(drawing:drawing,inks:model.enabled,tracing:model.mode=="Tracing path") }
                                 else { VStack(spacing:14) { Image(systemName:"scribble.variable").font(.system(size:48));Text("Your next drawing starts here");Text("Open a photograph and choose Generate drawing.").font(.caption).foregroundStyle(.secondary) }.foregroundStyle(.secondary) }

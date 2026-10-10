@@ -104,3 +104,25 @@ Confirmed BOOX player 0.17 is installed and retains the paired Mac identity. Its
 The Mac now remembers an explicit sharing choice across relaunch. Startup restores sharing only after the saved catalog loads; internal listener shutdown or failure does not erase the preference. The library labels distinguish sketches saved on the Mac from those downloaded by BOOX. Release build and code-signature verification passed. Download completion is recorded separately when verified; pairing alone is not proof of delivery.
 
 Device transfer subsequently completed: all five selected sketches (90.4 MB total) are present in the BOOX's active offline snapshot. Each downloaded file's byte length and SHA-256 matched both the downloaded manifest and the Mac catalog. Inkwell's USB mapping remains present. The currently running Mac session was preserved; the built 0.14.1 app takes effect on next reopen. Its sharing preference is saved as enabled to match the user's current session.
+
+## Mac 0.15.0 — photo crop
+
+Added rectangular cropping against the full imported photo, automatic workspace fitting, and Reset crop. Applying a crop clears the previous generated drawing and playback plan before regenerating when automatic optimization is enabled. The source file and existing library snapshots remain unchanged.
+
+All 111 Swift tests passed, including crop color/position/orientation preservation, full-photo restoration, clipped bounds, and invalid/tiny rectangles. Release packaging and local signature verification passed. In an isolated app instance, cropped the shell from 1254 × 1254 to 1165 × 832 and visually verified the enlarged fitted canvas matched the selection. Reopening retained the selection, Cancel preserved the applied crop, and Reset crop restored 1254 × 1254.
+
+## Mac 0.16.0 — sequential drawings
+
+Added a saved gallery playlist with ordering, per-transition timing, accelerated previews, scrubbing, looping, and a separate full-screen-capable presentation window. All source strokes retain their positions; the compositor preserves common RGB coverage and erases individual paths without cutting neighbouring paths at crossings. Gallery SVG parsing accepts the app’s bounded path/circle/polygon format and rejects external declarations and unsupported geometry.
+
+All 118 Swift tests passed. New checks cover RGB and variable-width SVG round trips, stroke scheduling, exact rendered endpoints across different aspect ratios, last-to-first continuity, shared/crossing ink preservation, invalid input rejection, filled styles, and playlist serialization. Full-detail apple and shell fixtures retained 10,552 and 7,913 strokes; parsing the pair took 4.45 seconds, and 1,280 × 720 frames took 65–103 ms on the development Mac.
+
+In an isolated native app, added the apple and shell from the gallery, changed the apple transition to 30 minutes, moved it after the shell, and verified the 90-minute total and saved settings. Played at 120×, advanced to the return transition, opened the presentation window, entered full screen, and returned to the playlist. Release packaging and local code-signature verification passed. This verifies Mac playback; no physical TV playback or hour-long soak test was performed.
+
+## Mac 0.17.0 — color and display workspace
+
+Added 12/24-color photo palettes and locally sampled full-color stroke runs. Color boundaries preserve connected geometry and widths; SVG, PNG, gallery thumbnails, draw simulation, the sample renderer, and sequential playback retain colors. Added E-ink, E-ink RGB, TV, Monitor, and Pen plotter presets, remembered destination selection, grouped inspector cards, persistent generation controls, and disabled painting placeholders. Bundled twelve additional generated object references with their prompts, for sixteen samples total.
+
+All 125 Swift tests passed. New coverage checks palette size/determinism, full-color geometry and width preservation, continued strokes, exact SVG size, sequential parsing, dot/facet colors, display defaults, optimization mode retention, and gallery entries excluded from tablet manifests. Screen stipple previews fill dots; tablet previews retain outline behavior.
+
+In an isolated packaged app, selected TV, verified full-color defaults and the sixteen-item sample menu, generated the butterfly reference, inspected its native colored preview, and ran Test the draw without tablet settings or warnings. Saved the 23.7 MB colored artwork to Gallery and verified its tablet availability remained false. Generated and saved its 12-color version, then loaded both large colored SVGs into Sequential drawings successfully. Release packaging and local signature verification passed. Public TV deployment and physical e-ink color accuracy were not tested.
