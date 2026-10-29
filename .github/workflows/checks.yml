@@ -1,0 +1,31 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  source-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_publication.py
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test -c release --package-path squiggle-draw
+      - run: sh squiggle-draw/build-app.sh
+      - run: swift run -c release --package-path squiggle-draw SquiggleSamples squiggle-draw/Sources/SquiggleDraw/Resources/Samples/apple.png /tmp/sketch-smoke mono 0
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        working-directory: squiggle-player
+      - run: sh tests/run.sh
+        working-directory: squiggle-player

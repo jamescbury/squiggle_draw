@@ -1,0 +1,14 @@
+.DS_Store
+**/.build/
+**/dist/
+**/.gradle/
+**/.gradle-home/
+**/build/
+**/local.properties
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.apk
+*.app/
+*.zip
